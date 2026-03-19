@@ -17,11 +17,10 @@ export async function POST(req: Request) {
     // Convert files to base64 data URIs
     const p1Buffer = Buffer.from(await parent1.arrayBuffer());
     const p2Buffer = Buffer.from(await parent2.arrayBuffer());
-    const p1Base64 = `data:${parent1.type};base64,${p1Buffer.toString("base64")}`;
-    const p2Base64 = `data:${parent2.type};base64,${p2Buffer.toString("base64")}`;
+    const p1Uri = `data:${parent1.type};base64,${p1Buffer.toString("base64")}`;
+    const p2Uri = `data:${parent2.type};base64,${p2Buffer.toString("base64")}`;
 
     if (!process.env.REPLICATE_API_TOKEN) {
-      // Demo mode
       return NextResponse.json({
         images: [
           `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${Date.now()}&backgroundColor=ffdfbf`,
@@ -38,40 +37,47 @@ export async function POST(req: Request) {
     });
 
     const results: string[] = [];
-    const expressions = [
-      "smiling happily, bright eyes",
-      "curious expression, looking at camera",
-      "laughing joyfully, chubby cheeks",
-      "peaceful sleeping face, serene",
+    const variations = [
+      "smiling happily with bright sparkling eyes, chubby rosy cheeks",
+      "looking curiously at camera with wide innocent eyes",
+      "laughing joyfully showing a big gummy smile",
+      "peaceful and content with a soft gentle expression",
     ];
 
     for (let i = 0; i < 4; i++) {
       try {
-        // Use p-image-edit for face fusion
-        const output = await replicate.run("prunaai/p-image-edit", {
+        // Use FLUX 2 Flex which supports multiple input images
+        const output = await replicate.run("black-forest-labs/flux-2-flex", {
           input: {
-            prompt: `Generate a photorealistic adorable baby face that is a genetic blend of both parents shown in image 1 and image 2. The baby should have features from both parents blended naturally - eyes, nose shape, skin tone, and face structure. Cute ${expressions[i]}, soft studio lighting, professional baby portrait photography, ultra realistic, high quality. The baby appears to be about 6 months old.`,
-            images: [p1Base64, p2Base64],
+            prompt: `Photorealistic studio portrait of an adorable 6-month-old baby, ${variations[i]}. The baby's features are a natural genetic blend combining traits from both reference parent photos provided. Realistic skin texture, soft diffused studio lighting, shallow depth of field, professional baby photography, ultra high quality, 8k detail.`,
+            input_images: [p1Uri, p2Uri],
             aspect_ratio: "1:1",
             output_format: "webp",
             output_quality: 90,
+            seed: Date.now() + i * 1000,
           },
         });
 
         if (typeof output === "string") {
           results.push(output);
-        } else if (Array.isArray(output) && output.length > 0) {
-          results.push(output[0] as string);
+        } else if (
+          output &&
+          typeof output === "object" &&
+          "url" in (output as Record<string, unknown>)
+        ) {
+          results.push((output as Record<string, string>).url);
         }
       } catch (genErr) {
         console.error(`Generation ${i} failed:`, genErr);
-        // Continue trying other generations
       }
     }
 
     if (results.length === 0) {
       return NextResponse.json(
-        { error: "Generation failed. Please try different, clearer photos with faces visible." },
+        {
+          error:
+            "Generation failed. This can happen due to API rate limits. Please wait a moment and try again, or try with different photos.",
+        },
         { status: 500 }
       );
     }
